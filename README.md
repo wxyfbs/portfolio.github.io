@@ -1,2 +1,1 @@
-# portfolio.github.io
-portfolio
+# just a portfolio for my scripting career
