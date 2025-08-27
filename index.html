@@ -55,6 +55,7 @@ body.dark .panel-section{@apply bg-gray-700 border-gray-600;}
 <input id="photoInput" type="file" accept="image/*" multiple class="block w-full text-sm" />
 <div id="photoGrid" class="grid grid-cols-3 gap-2 mt-2"></div>
 <button id="saveProfileBtn" class="btn-main w-full mt-3">Salvează profilul</button>
+<button onclick="clearPhotos()" class="btn-main w-full mt-2 text-sm">Șterge toate pozele</button>
 </div>
 </div>
 
@@ -72,9 +73,8 @@ body.dark .panel-section{@apply bg-gray-700 border-gray-600;}
 <div class="mt-3">
 <h3 class="font-semibold mb-1">Creează Întâlnire</h3>
 <input id="hangoutName" class="border rounded-xl p-2 w-full mb-2" placeholder="Nume întâlnire" />
-<input id="hangoutLat" class="border rounded-xl p-2 w-full mb-2" placeholder="Latitudine" />
-<input id="hangoutLng" class="border rounded-xl p-2 w-full mb-2" placeholder="Longitudine" />
 <button id="createHangoutBtn" class="btn-main w-full">Adaugă Întâlnire</button>
+<button onclick="clearHangoutMarker()" class="btn-main w-full mt-1 text-sm">Șterge selecția</button>
 </div>
 </div>
 </section>
@@ -101,7 +101,7 @@ function togglePanel(p){[settingsPanel,creditsPanel].forEach(el=>{if(el.id!==p)e
 function toggleTheme(){document.body.classList.toggle('dark');}
 function toggleSection(id){document.querySelectorAll('.panel-section').forEach(s=>s.style.display='none');document.getElementById(id).style.display='block';}
 
-// LocalStorage profil
+// Profil
 const nameInput=document.getElementById('nameInput'),
 descInput=document.getElementById('descInput'),
 photoInput=document.getElementById('photoInput'),
@@ -109,6 +109,8 @@ photoGrid=document.getElementById('photoGrid'),
 saveBtn=document.getElementById('saveProfileBtn');
 
 function addPhoto(src){const img=document.createElement('img');img.src=src;img.className='rounded-xl';photoGrid.appendChild(img);}
+function clearPhotos(){localStorage.removeItem('photos');photoGrid.innerHTML='';}
+
 window.addEventListener('load',()=>{
   const savedName=localStorage.getItem('name');
   const savedDesc=localStorage.getItem('desc');
@@ -116,6 +118,7 @@ window.addEventListener('load',()=>{
   if(savedName) nameInput.value=savedName;
   if(savedDesc) descInput.value=savedDesc;
   if(savedPhotos.length) savedPhotos.forEach(src=>addPhoto(src));
+  checkAdmin();
 });
 
 // Salvează profil
@@ -123,7 +126,7 @@ saveBtn.addEventListener('click',()=>{
   localStorage.setItem('name',nameInput.value);
   localStorage.setItem('desc',descInput.value);
   const files=photoInput.files;
-  const photos=[];
+  const photos=JSON.parse(localStorage.getItem('photos')||'[]');
   if(files.length){
     Array.from(files).forEach(f=>{
       const r=new FileReader();
@@ -131,14 +134,38 @@ saveBtn.addEventListener('click',()=>{
       r.readAsDataURL(f);
     });
   }
-  if(nameInput.value.toLowerCase()==='radu'||nameInput.value.toLowerCase()==='admin') adminPanel.style.display='block';
-  else adminPanel.style.display='none';
+  checkAdmin();
 });
 
-// Leaflet Map
+// Admin panel
+function checkAdmin(){
+  const name=nameInput.value.trim().toLowerCase();
+  if(name==='radu'||name==='admin'){
+    adminPanel.style.display='block';
+    renderUsers();
+    renderHangouts();
+  } else adminPanel.style.display='none';
+}
+
+function renderUsers(){
+  const userDiv=document.getElementById('usersSection');
+  userDiv.innerHTML='';
+  const name=localStorage.getItem('name')||'N/A';
+  const desc=localStorage.getItem('desc')||'N/A';
+  const photos=JSON.parse(localStorage.getItem('photos')||'[]');
+  const div=document.createElement('div');
+  div.className='panel-item';
+  div.innerHTML=`<strong>${name}</strong><br>${desc}<br>`;
+  photos.forEach(src=>{const img=document.createElement('img');img.src=src;img.className='rounded-xl w-16 h-16 mr-1 inline-block';div.appendChild(img);});
+  userDiv.appendChild(div);
+}
+
+// Map
 let map=L.map('map').setView([0,0],2);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
 const userMarker=L.marker([0,0]).addTo(map);
+let hangoutMarker = null;
+
 function updateLocation(){
   if(document.getElementById('shareToggle').checked && navigator.geolocation){
     navigator.geolocation.getCurrentPosition(pos=>{
@@ -155,6 +182,7 @@ setInterval(updateLocation,3000);
 
 // Hangouts
 let hangouts=JSON.parse(localStorage.getItem('hangouts')||'[]');
+
 function renderHangouts(){
   map.eachLayer(l=>{if(l.options && l.options.hangoutMarker) map.removeLayer(l);});
   const listDiv=document.getElementById('meetupsSection');
@@ -167,17 +195,28 @@ function renderHangouts(){
     listDiv.appendChild(div);
   });
 }
+
 function deleteHangout(i){hangouts.splice(i,1);localStorage.setItem('hangouts',JSON.stringify(hangouts));renderHangouts();}
+
+// Creează hangout din input sau click pe map
 document.getElementById('createHangoutBtn').addEventListener('click',()=>{
   const name=document.getElementById('hangoutName').value;
-  const lat=parseFloat(document.getElementById('hangoutLat').value);
-  const lng=parseFloat(document.getElementById('hangoutLng').value);
-  if(name && !isNaN(lat) && !isNaN(lng)){
-    hangouts.push({name,lat,lng});
-    localStorage.setItem('hangouts',JSON.stringify(hangouts));
-    renderHangouts();
-  }
+  if(!hangoutMarker){alert('Selectează o locație pe hartă!'); return;}
+  const {lat,lng}=hangoutMarker.getLatLng();
+  if(name){hangouts.push({name,lat,lng}); localStorage.setItem('hangouts',JSON.stringify(hangouts)); renderHangouts(); hangoutMarker=null; document.getElementById('hangoutName').value='';}
 });
+
+// Click pe map pentru hangout
+map.on('click',function(e){
+  const {lat,lng}=e.latlng;
+  if(hangoutMarker) map.removeLayer(hangoutMarker);
+  hangoutMarker=L.marker([lat,lng],{hangoutMarker:true}).addTo(map);
+});
+
+function clearHangoutMarker(){
+  if(hangoutMarker) map.removeLayer(hangoutMarker);
+  hangoutMarker=null;
+}
 renderHangouts();
 </script>
 </body>
